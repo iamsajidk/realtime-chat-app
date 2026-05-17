@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat App with Pro Features</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body class="bg-slate-900 h-screen flex flex-col justify-center items-center font-sans p-4">
+
+    <div id="authContainer" class="w-full max-w-md bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700">
+        <h2 id="authTitle" class="text-white font-bold text-2xl text-center mb-6">Login to Chat</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="text-slate-400 text-xs block mb-1">Username</label>
+                <input type="text" id="authUsername" placeholder="Enter username" class="w-full bg-slate-900 text-white border border-slate-700 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500">
+            </div>
+            <div>
+                <label class="text-slate-400 text-xs block mb-1">Password</label>
+                <input type="password" id="authPassword" placeholder="Enter password" class="w-full bg-slate-900 text-white border border-slate-700 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500">
+            </div>
+            <button id="authBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg font-medium transition-all shadow-lg">Login</button>
+            <p class="text-slate-400 text-xs text-center">
+                <span id="toggleText">Don't have an account?</span>
+                <button id="toggleAuthMode" class="text-indigo-400 font-semibold hover:underline ml-1">Sign Up</button>
+            </p>
+        </div>
+    </div>
+
+    <div id="roomContainer" class="w-full max-w-md bg-slate-800 rounded-xl shadow-2xl p-6 border border-slate-700 hidden">
+        <h2 class="text-white font-bold text-2xl text-center mb-2">Welcome, <span id="welcomeUser" class="text-indigo-400"></span>!</h2>
+        <p class="text-slate-400 text-sm text-center mb-6">Select a chat room to enter</p>
+        <div class="space-y-4">
+            <div>
+                <label class="text-slate-400 text-xs block mb-1">Choose Room</label>
+                <select id="roomSelect" class="w-full bg-slate-900 text-white border border-slate-700 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500">
+                    <option value="Coding 🧑‍💻">Coding 🧑‍💻</option>
+                    <option value="Gaming 🎮">Gaming 🎮</option>
+                    <option value="Chill Lounge ☕">Chill Lounge ☕</option>
+                </select>
+            </div>
+            <button id="joinRoomBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg font-medium transition-all shadow-lg">Join Room</button>
+        </div>
+    </div>
+
+    <div id="chatContainer" class="w-full max-w-md h-[550px] bg-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-700 hidden">
+        <div class="bg-indigo-600 px-4 py-3 flex items-center justify-between shadow-md">
+            <div>
+                <h1 id="roomDisplay" class="text-white font-bold text-base tracking-wide">Room Chat</h1>
+                <p class="text-[10px] text-indigo-200">User: <span id="userDisplay"></span></p>
+            </div>
+            <div class="flex gap-2">
+                <button id="switchRoomBtn" class="bg-indigo-700 hover:bg-indigo-800 text-white text-xs px-2.5 py-1.5 rounded-md font-medium transition-all">
+                    🔄 Switch
+                </button>
+                <button id="logoutBtn" class="bg-rose-600 hover:bg-rose-700 text-white text-xs px-2.5 py-1.5 rounded-md font-medium transition-all">
+                    🚪 Logout
+                </button>
+            </div>
+        </div>
+        <div id="typingIndicator" class="bg-slate-850 px-4 py-1 text-xs text-indigo-400 italic font-medium h-6 flex items-center"></div>
+        <div id="messageArea" class="flex-1 p-4 overflow-y-auto space-y-4 text-sm scrollbar-thin"></div>
+        <div class="p-4 border-t border-slate-700 flex gap-2 bg-slate-900">
+            <input type="text" id="messageInput" placeholder="Type a message..." class="flex-1 bg-slate-800 text-white border border-slate-700 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 placeholder-slate-500 transition-all">
+            <button id="sendBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg font-medium transition-all shadow-lg active:scale-95">Send</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const authContainer = document.getElementById('authContainer');
+        const roomContainer = document.getElementById('roomContainer');
+        const chatContainer = document.getElementById('chatContainer');
+        
+        const authTitle = document.getElementById('authTitle');
+        const authUsername = document.getElementById('authUsername');
+        const authPassword = document.getElementById('authPassword');
+        const authBtn = document.getElementById('authBtn');
+        const toggleAuthMode = document.getElementById('toggleAuthMode');
+        const toggleText = document.getElementById('toggleText');
+        
+        const welcomeUser = document.getElementById('welcomeUser');
+        const roomSelect = document.getElementById('roomSelect');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        
+        const roomDisplay = document.getElementById('roomDisplay');
+        const userDisplay = document.getElementById('userDisplay');
+        const messageArea = document.getElementById('messageArea');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const typingIndicator = document.getElementById('typingIndicator');
+
+        // NEW Buttons
+        const switchRoomBtn = document.getElementById('switchRoomBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+
+        let socket;
+        let myUsername = "";
+        let currentRoom = "";
+        let isLoginMode = true;
+        let typingTimer;
+
+        // Toggle Auth
+        toggleAuthMode.addEventListener('click', () => {
+            isLoginMode = !isLoginMode;
+            authTitle.innerText = isLoginMode ? "Login to Chat" : "Create Account";
+            authBtn.innerText = isLoginMode ? "Login" : "Sign Up";
+            toggleText.innerText = isLoginMode ? "Don't have an account?" : "Already have an account?";
+            toggleAuthMode.innerText = isLoginMode ? "Sign Up" : "Login";
+        });
+
+        // Auth Submit
+        authBtn.addEventListener('click', async () => {
+            const username = authUsername.value.trim();
+            const password = authPassword.value.trim();
+            if (!username || !password) return alert("Please fill all fields!");
+
+            const endpoint = isLoginMode ? '/api/login' : '/api/signup';
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    if (isLoginMode) {
+                        myUsername = data.username;
+                        showRoomSelection();
+                    } else {
+                        alert("Signup successful! Please login.");
+                        toggleAuthMode.click();
+                    }
+                } else { alert(data.message); }
+            } catch (err) { alert("Something went wrong!"); }
+        });
+
+        function showRoomSelection() {
+            authContainer.classList.add('hidden');
+            roomContainer.classList.remove('hidden');
+            chatContainer.classList.add('hidden'); // Ensure chat is hidden
+            welcomeUser.innerText = myUsername;
+        }
+
+        // Join Room Action
+        joinRoomBtn.addEventListener('click', () => {
+            currentRoom = roomSelect.value;
+            roomContainer.classList.add('hidden');
+            chatContainer.classList.remove('hidden');
+            
+            roomDisplay.innerText = currentRoom;
+            userDisplay.innerText = myUsername;
+
+            // Socket connection build karna agar pehle se nahi hai
+            if (!socket) {
+                socket = io('http://localhost:3000');
+                setupSocketListeners();
+            } else {
+                // Agar socket pehle se connect hai, toh bas naye room ki request emit karo
+                socket.emit('joinRoom', { username: myUsername, room: currentRoom });
+            }
+        });
+
+        // Socket Listeners Setup Function
+        function setupSocketListeners() {
+            socket.emit('joinRoom', { username: myUsername, room: currentRoom });
+
+            socket.on('chatHistory', (history) => {
+                messageArea.innerHTML = "";
+                if (history) history.forEach(chat => displayMessage(chat));
+            });
+
+            socket.on('messageFromServer', (data) => displayMessage(data));
+            socket.on('userTyping', (user) => { typingIndicator.innerText = `${user} is typing...`; });
+            socket.on('userStopTyping', () => { typingIndicator.innerText = ""; });
+        }
+
+        // ─── NEW: SWITCH ROOM LOGIC ───
+        switchRoomBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.emit('stopTyping', currentRoom);
+                // Hume backend ko room se explicit disconnect karne ki zarurat nahi, 
+                // naye room me joinRoom emit karte hi backend handle kar leta hai.
+            }
+            messageArea.innerHTML = ""; // Purani screen saaf karo
+            typingIndicator.innerText = "";
+            showRoomSelection(); // Room selection screen par wapas jao
+        });
+
+        // ─── NEW: LOGOUT LOGIC ───
+        logoutBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.disconnect(); // Socket connection poora band karo
+                socket = null; // Reset socket object
+            }
+            // Saare fields clear karo
+            myUsername = "";
+            currentRoom = "";
+            authUsername.value = "";
+            authPassword.value = "";
+            messageArea.innerHTML = "";
+            typingIndicator.innerText = "";
+            
+            // Welcome to login screen again
+            chatContainer.classList.add('hidden');
+            roomContainer.classList.add('hidden');
+            authContainer.classList.remove('hidden');
+        });
+
+        // Input monitoring for typing
+        messageInput.addEventListener('input', () => {
+            if (socket) {
+                socket.emit('typing', { username: myUsername, room: currentRoom });
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(() => socket.emit('stopTyping', currentRoom), 1000);
+            }
+        });
+
+        // Display Message Helper
+        function displayMessage(data) {
+            if (!data || !data.message) return;
+            const msgDiv = document.createElement('div');
+            const isMe = data.username === myUsername;
+            const msgDate = data.timestamp ? new Date(data.timestamp) : new Date();
+            const formattedTime = msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            msgDiv.className = `flex ${isMe ? 'justify-end' : 'justify-start'} w-full`;
+            msgDiv.innerHTML = `
+                <div class="${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-200 rounded-bl-none'} px-4 py-2 rounded-xl max-w-[75%] shadow-md break-words flex flex-col">
+                    <span class="block text-[10px] opacity-65 font-bold mb-0.5">${isMe ? 'You' : data.username}</span>
+                    <span class="text-sm font-normal pr-4">${data.message}</span>
+                    <span class="text-[9px] opacity-50 font-medium self-end mt-1">${formattedTime}</span>
+                </div>
+            `;
+            messageArea.appendChild(msgDiv);
+            messageArea.scrollTop = messageArea.scrollHeight;
+        }
+
+        // Send Message
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (text !== "" && socket) {
+                socket.emit('chatMessage', { room: currentRoom, username: myUsername, message: text });
+                messageInput.value = "";
+                socket.emit('stopTyping', currentRoom);
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+    </script>
+</body>
+</html>
